@@ -3,6 +3,28 @@ import numpy as np
 import pandas as pd
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+
+import os
+
+# ==============================================================
+# CACHE SIMPLE EN DISCO (NO INVASIVO)
+# ==============================================================
+
+CACHE_DIR = "cache"
+os.makedirs(CACHE_DIR, exist_ok=True)
+
+def _cache_path(name: str):
+    return os.path.join(CACHE_DIR, name)
+
+def load_cache(name: str):
+    path = _cache_path(name)
+    if os.path.exists(path):
+        return joblib.load(path)
+    return None
+
+def save_cache(name: str, data):
+    joblib.dump(data, _cache_path(name))
+
 # Modelo Tiempo
 RUTA_DATASET = "data/tiempo_produccion_rows.csv"
 RUTA_MODELO = "modelos/modelo_unificado.pkl"
@@ -90,7 +112,10 @@ def predict(anio: int = Query(..., description="Año a predecir")):
     Retorna:
     codigo_prenda | talla | prediccion_tiempo
     """
-
+    cache_key = f"predict_tiempo_{anio}.joblib"
+    cache = load_cache(cache_key)
+    if cache is not None:
+        return cache
     # ----------------------------------------------------------
     # 1. CARGAR DATA HISTÓRICA
     # ----------------------------------------------------------
@@ -182,11 +207,15 @@ def predict(anio: int = Query(..., description="Año a predecir")):
     # 8. RESPUESTA JSON (para dashboard)
     # ----------------------------------------------------------
 
-    return {
+    response = {
         "anio": anio,
         "total_registros": len(df_out),
         "data": df_out.to_dict(orient="records")
     }
+
+    save_cache(cache_key, response)
+    return response
+
 
     # ----------------------------------------------------------
     #                  MODELO MATERIAL
@@ -211,7 +240,10 @@ def predict_material(anio: int = Query(..., description="Año a predecir consumo
     Retorna:
     codigo_prenda | talla | codigo_material | unidad | prediccion_cantidad_material_anual
     """
-
+    cache_key = f"predict_material_{anio}.joblib"
+    cache = load_cache(cache_key)
+    if cache is not None:
+        return cache
     # ----------------------------------------------------------
     # 1. CARGAR DATA HISTÓRICA
     # ----------------------------------------------------------
@@ -333,17 +365,24 @@ def predict_material(anio: int = Query(..., description="Año a predecir consumo
             "prediccion_cantidad_material_anual": float(np.sum(mensual))
         })
 
-    return {
+    response = {
         "anio": anio,
         "total_registros": len(resultados),
         "data": resultados
     }
+
+    save_cache(cache_key, response)
+    return response
+
     # ----------------------------------------------------------
     #                  MODELO VENTAS
     # ----------------------------------------------------------
 @app.get("/predict-ventas")
 def predict_ventas():
-
+    cache_key = "predict_ventas.joblib"
+    cache = load_cache(cache_key)
+    if cache is not None:
+        return cache
     # ==============================
     # 1. CARGAR CSV
     # ==============================
@@ -479,8 +518,12 @@ def predict_ventas():
     # ==============================
     # 7. RESPUESTA
     # ==============================
-    return {
+    response = {
         "anio_prediccion": int(anio_max + 1),
         "total_registros": len(df_final_enriquecido),
         "data": df_final_enriquecido.to_dict(orient="records")
     }
+
+    save_cache(cache_key, response)
+    return response
+
