@@ -4,10 +4,6 @@ import pandas as pd
 from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-# ==============================================================
-# CONFIGURACIÓN
-# ==============================================================
-
 RUTA_DATASET = "data/tiempo_produccion_rows.csv"
 RUTA_MODELO = "modelos/modelo_unificado.pkl"
 
