@@ -24,6 +24,34 @@ def load_cache(name: str):
 
 def save_cache(name: str, data):
     joblib.dump(data, _cache_path(name))
+# ==============================================================
+# CACHE PERSISTENTE (DATA → CACHE EN ARRANQUE)
+# ==============================================================
+
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+PERSISTENT_MAP = {
+    "predict_tiempo_2026.joblib": "tiempo_precalculado_2026.joblib",
+    "predict_material_2026.joblib": "material_precalculado_2026.joblib",
+    "predict_ventas.joblib": "ventas_precalculado.joblib",
+}
+
+def preload_cache_from_data():
+    for cache_name, data_name in PERSISTENT_MAP.items():
+        cache_path = os.path.join(CACHE_DIR, cache_name)
+        data_path = os.path.join(DATA_DIR, data_name)
+
+        if not os.path.exists(cache_path) and os.path.exists(data_path):
+            try:
+                data = joblib.load(data_path)
+                joblib.dump(data, cache_path)
+                print(f"✔ Cache restaurada desde data: {cache_name}")
+            except Exception as e:
+                print(f"⚠ Cache persistente inválida ({data_name}), se recalculará. Error: {e}")
+
+
+preload_cache_from_data()
 
 # Modelo Tiempo
 RUTA_DATASET = "data/tiempo_produccion_rows.csv"
@@ -214,6 +242,7 @@ def predict(anio: int = Query(..., description="Año a predecir")):
     }
 
     save_cache(cache_key, response)
+    joblib.dump(response, os.path.join(DATA_DIR, "tiempo_precalculado_2026.joblib"))
     return response
 
 
@@ -372,6 +401,7 @@ def predict_material(anio: int = Query(..., description="Año a predecir consumo
     }
 
     save_cache(cache_key, response)
+    joblib.dump(response, os.path.join(DATA_DIR, "material_precalculado_2026.joblib"))
     return response
 
     # ----------------------------------------------------------
@@ -525,5 +555,6 @@ def predict_ventas():
     }
 
     save_cache(cache_key, response)
+    joblib.dump(response, os.path.join(DATA_DIR, "ventas_precalculado.joblib"))
     return response
 
