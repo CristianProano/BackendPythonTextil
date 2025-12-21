@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 
 # ==============================================================
-# CACHE SIMPLE EN DISCO (NO INVASIVO)
+# CACHE SIMPLE EN DISCO 
 # ==============================================================
 
 CACHE_DIR = "cache"
@@ -25,7 +25,7 @@ def load_cache(name: str):
 def save_cache(name: str, data):
     joblib.dump(data, _cache_path(name))
 # ==============================================================
-# CACHE PERSISTENTE (DATA → CACHE EN ARRANQUE)
+# CACHE PERSISTENTE 
 # ==============================================================
 
 DATA_DIR = "data"
@@ -60,8 +60,7 @@ RUTA_MODELO = "modelos/modelo_unificado.pkl"
 RUTA_DATASET_MATERIAL = "data/material_produccion_rows.csv"
 RUTA_MODELO_MATERIAL = "modelos/modelo_material_unificado.pkl"
 
-#CARGA MODELO VENTAS (UNIFICADO)
-
+#CARGA MODELO VENTAS 
 MODELO_VENTAS = joblib.load("modelos/modelo_prediccion_ventas_lightgbm_joblib.pkl")
 LABEL_ALMACEN = joblib.load("modelos/labelencoder_almacen.pkl")
 SCALER_VENTAS = joblib.load("modelos/scaler_features.pkl")
@@ -84,7 +83,7 @@ app = FastAPI(title="API Predicción Tiempo Producción")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # luego puedes limitar a tu dominio
+    allow_origins=["*"],  
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -123,7 +122,7 @@ def minutos_a_dhhmm(total_min):
     return f"{d:02d}:{h:02d}:{m:02d}"
 
 # ==============================================================
-# ENDPOINT SALUD
+# ENDPOINT SALUDO
 # ==============================================================
 
 @app.get("/")
@@ -144,9 +143,6 @@ def predict(anio: int = Query(..., description="Año a predecir")):
     cache = load_cache(cache_key)
     if cache is not None:
         return cache
-    # ----------------------------------------------------------
-    # 1. CARGAR DATA HISTÓRICA
-    # ----------------------------------------------------------
 
     df = pd.read_csv(RUTA_DATASET)
     df.columns = [c.strip().lower() for c in df.columns]
@@ -160,10 +156,6 @@ def predict(anio: int = Query(..., description="Año a predecir")):
     df["tiempo_minutos"] = df["tiempo"].apply(convertir_minutos)
     df = df.dropna(subset=["tiempo_minutos"])
 
-    # ----------------------------------------------------------
-    # 2. AGREGACIÓN MENSUAL
-    # ----------------------------------------------------------
-
     df = (
         df.groupby(["año", "mes", "codigo_prenda", "talla"], as_index=False)
         .agg({
@@ -174,26 +166,14 @@ def predict(anio: int = Query(..., description="Año a predecir")):
         .reset_index(drop=True)
     )
 
-    # ----------------------------------------------------------
-    # 3. ENCODING
-    # ----------------------------------------------------------
-
     df["prenda_enc"] = label_prenda.transform(df["codigo_prenda"].astype(str))
     df["talla_enc"] = label_talla.transform(df["talla"].astype(str))
-
-    # ----------------------------------------------------------
-    # 4. FEATURES TEMPORALES
-    # ----------------------------------------------------------
 
     df["mes_sin"] = np.sin(2 * np.pi * df["mes"] / 12)
     df["mes_cos"] = np.cos(2 * np.pi * df["mes"] / 12)
     df["trimestre"] = ((df["mes"] - 1) // 3) + 1
     df["año_norm"] = (anio - anio_min) / max(1, anio_max - anio_min)
     df["tiempo"] = (anio - anio_min) * 12 + df["mes"]
-
-    # ----------------------------------------------------------
-    # 5. LAGS Y ROLLINGS
-    # ----------------------------------------------------------
 
     grp = df.groupby(["prenda_enc", "talla_enc"])["tiempo_minutos"]
 
@@ -207,16 +187,8 @@ def predict(anio: int = Query(..., description="Año a predecir")):
 
     df.fillna(0, inplace=True)
 
-    # ----------------------------------------------------------
-    # 6. FEATURE MATRIX
-    # ----------------------------------------------------------
-
     X = df[FEATURES]
     X_scaled = scaler_features.transform(X)
-
-    # ----------------------------------------------------------
-    # 7. PREDICCIÓN
-    # ----------------------------------------------------------
 
     pred_log = modelo.predict(X_scaled)
     pred_log_unscaled = scaler_target.inverse_transform(
@@ -230,11 +202,7 @@ def predict(anio: int = Query(..., description="Año a predecir")):
         "talla": df["talla"],
         "prediccion_tiempo": [minutos_a_dhhmm(x) for x in pred_min]
     })
-
-    # ----------------------------------------------------------
-    # 8. RESPUESTA JSON (para dashboard)
-    # ----------------------------------------------------------
-
+    
     response = {
         "anio": anio,
         "total_registros": len(df_out),
@@ -250,7 +218,7 @@ def predict(anio: int = Query(..., description="Año a predecir")):
     #                  MODELO MATERIAL
     # ----------------------------------------------------------
 
-# CARGA MODELO MATERIAL (UNIFICADO)
+# CARGA MODELO MATERIAL
 
 bundle_material = joblib.load(RUTA_MODELO_MATERIAL)
 
@@ -273,9 +241,6 @@ def predict_material(anio: int = Query(..., description="Año a predecir consumo
     cache = load_cache(cache_key)
     if cache is not None:
         return cache
-    # ----------------------------------------------------------
-    # 1. CARGAR DATA HISTÓRICA
-    # ----------------------------------------------------------
 
     df = pd.read_csv(RUTA_DATASET_MATERIAL)
     df.columns = [c.strip().lower() for c in df.columns]
@@ -286,9 +251,6 @@ def predict_material(anio: int = Query(..., description="Año a predecir consumo
     df["mes"] = df["fecha"].dt.month
     df["año"] = df["fecha"].dt.year
 
-    # ----------------------------------------------------------
-    # 2. AGREGACIÓN (IGUAL AL ENTRENAMIENTO)
-    # ----------------------------------------------------------
 
     df = df.groupby(
         ["año", "mes", "codigo_material", "codigo_prenda", "talla", "unidad"],
@@ -298,17 +260,11 @@ def predict_material(anio: int = Query(..., description="Año a predecir consumo
         "cantidad_prenda": "sum"
     }).sort_values(["año", "mes"]).reset_index(drop=True)
 
-    # ----------------------------------------------------------
-    # 3. ENCODING
-    # ----------------------------------------------------------
 
     df["material_enc"] = label_material.transform(df["codigo_material"].astype(str))
     df["talla_enc"] = label_talla_mat.transform(df["talla"].astype(str))
     df["unidad_enc"] = label_unidad.transform(df["unidad"].astype(str))
 
-    # ----------------------------------------------------------
-    # 4. FEATURES TEMPORALES
-    # ----------------------------------------------------------
 
     df["mes_sin"] = np.sin(2 * np.pi * df["mes"] / 12)
     df["mes_cos"] = np.cos(2 * np.pi * df["mes"] / 12)
@@ -319,10 +275,6 @@ def predict_material(anio: int = Query(..., description="Año a predecir consumo
     df["cantidad_prenda_norm"] = scaler_cant_prenda.transform(
         df[["cantidad_prenda"]]
     )
-
-    # ----------------------------------------------------------
-    # 5. LAGS Y ROLLINGS
-    # ----------------------------------------------------------
 
     df["grupo"] = (
         df["material_enc"].astype(str) + "_" +
@@ -340,10 +292,6 @@ def predict_material(anio: int = Query(..., description="Año a predecir consumo
     df["var_pct"] = grp.pct_change()
 
     df.fillna(0, inplace=True)
-
-    # ----------------------------------------------------------
-    # 6. ÚLTIMO ESTADO POR SERIE
-    # ----------------------------------------------------------
 
     ultimos = df.groupby("grupo", as_index=False).tail(1)
 
@@ -413,9 +361,7 @@ def predict_ventas():
     cache = load_cache(cache_key)
     if cache is not None:
         return cache
-    # ==============================
-    # 1. CARGAR CSV
-    # ==============================
+    
     df = pd.read_csv(RUTA_VENTAS)
     df.columns = [c.strip().upper() for c in df.columns]
 
@@ -425,9 +371,6 @@ def predict_ventas():
     df["MES"] = df["FECHA"].dt.month
     df["AÑO"] = df["FECHA"].dt.year
 
-    # ==============================
-    # 2. AGRUPAR (IGUAL ENTRENAMIENTO)
-    # ==============================
     df_grouped = df.groupby(
         ["MES", "AÑO", "CODIGO_ALMACEN"],
         as_index=False
@@ -436,9 +379,6 @@ def predict_ventas():
         "PRECIO_TOTAL": "sum"
     }).sort_values(["AÑO", "MES"]).reset_index(drop=True)
 
-    # ==============================
-    # 3. FEATURES
-    # ==============================
     df_grouped["MES_SIN"] = np.sin(2*np.pi*df_grouped["MES"]/12)
     df_grouped["MES_COS"] = np.cos(2*np.pi*df_grouped["MES"]/12)
     df_grouped["TRIMESTRE"] = ((df_grouped["MES"]-1)//3)+1
@@ -466,9 +406,6 @@ def predict_ventas():
         .pct_change().fillna(0)
     )
 
-    # ==============================
-    # 4. PREDICCIÓN (MISMO LOOP)
-    # ==============================
     ultimos = df_grouped.groupby("ALMACEN_ENC").tail(1)
     predicciones = []
 
@@ -510,9 +447,6 @@ def predict_ventas():
                 "cantidad_predicha": pred
             })
 
-    # ==============================
-    # 5. AGREGAR POR ALMACÉN
-    # ==============================
     df_pred = pd.DataFrame(predicciones)
 
     df_final = (
@@ -520,9 +454,6 @@ def predict_ventas():
         ["cantidad_predicha"].sum()
     )
 
-    # ==============================
-    # 6. INDEXADO (ARCHIVOS EXTRA)
-    # ==============================
     df_almacen = pd.read_csv(RUTA_ALMACEN)
     df_prenda = pd.read_csv(RUTA_PRENDA)
 
@@ -545,9 +476,6 @@ def predict_ventas():
         "cantidad_predicha"
     ]]
 
-    # ==============================
-    # 7. RESPUESTA
-    # ==============================
     response = {
         "anio_prediccion": int(anio_max + 1),
         "total_registros": len(df_final_enriquecido),
